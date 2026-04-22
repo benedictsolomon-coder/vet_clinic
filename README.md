@@ -1,5 +1,3 @@
-# vet_clinic
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -25,11 +23,10 @@ typedef struct {
     char ownerName[NAME_LEN];
     char petName[NAME_LEN];
     char petType[NAME_LEN];
-    int  isExotic;
     int  severity;
-    int  appointmentTime;   
+    int  appointmentTime;
     int  waitMinutes;
-    int  priorityScore;    
+    int  priorityScore;
 } Patient;
 
 typedef struct {
@@ -49,7 +46,7 @@ typedef struct {
 
 typedef struct {
     Patient data[STACK_SIZE];
-    int     top;  // -1 when empty
+    int     top;
 } Stack;
 
 typedef struct BSTNode {
@@ -64,7 +61,8 @@ Stack      undoStk = { .top = -1 };
 BSTNode   *bstRoot = NULL;
 int        nextId  = 1;
 
-int computePriority(int severity, int isExotic, int waitMinutes, int appointmentTime) {
+/* FIX 1: Removed isExotic parameter entirely */
+int computePriority(int severity, int waitMinutes, int appointmentTime) {
     int sevScore;
     switch (severity) {
         case SEV_CRITICAL: sevScore =  0; break;
@@ -72,14 +70,13 @@ int computePriority(int severity, int isExotic, int waitMinutes, int appointment
         case SEV_MODERATE: sevScore = 20; break;
         default:           sevScore = 30; break;
     }
-    int petScore  = isExotic ? 0 : 5;
     int waitScore = 20 - (waitMinutes / 3);
     if (waitScore < 0)  waitScore = 0;
     if (waitScore > 20) waitScore = 20;
     int apptMins  = (appointmentTime / 100) * 60 + (appointmentTime % 100);
     int apptScore = apptMins / 64;
     if (apptScore > 15) apptScore = 15;
-    return sevScore + petScore + waitScore + apptScore;
+    return sevScore + waitScore + apptScore;
 }
 
 const char *severityLabel(int s) {
@@ -90,14 +87,17 @@ const char *severityLabel(int s) {
         default:           return "ROUTINE";
     }
 }
+
 void clearInput() {
     int c;
     while ((c = getchar()) != '\n' && c != EOF);
 }
+
 void printDivider(char c, int n) {
     for (int i = 0; i < n; i++) putchar(c);
     putchar('\n');
 }
+
 void strToLower(char *dest, const char *src) {
     int i = 0;
     while (src[i]) { dest[i] = tolower((unsigned char)src[i]); i++; }
@@ -131,12 +131,14 @@ void heapifyDown(int idx) {
         } else break;
     }
 }
+
 void heapEnqueue(Patient p) {
     if (heap.size >= MAX_PATIENTS) {
         printf("  [!] Queue is full.\n");
         return;
     }
-    p.priorityScore = computePriority(p.severity, p.isExotic, p.waitMinutes, p.appointmentTime);
+    /* FIX 2: Corrected call — no isExotic argument */
+    p.priorityScore = computePriority(p.severity, p.waitMinutes, p.appointmentTime);
     heap.data[heap.size++] = p;
     heapifyUp(heap.size - 1);
 }
@@ -147,6 +149,7 @@ Patient heapDequeue() {
     heapifyDown(0);
     return top;
 }
+
 void listPrepend(Patient p) {
     HistoryNode *node = (HistoryNode *)malloc(sizeof(HistoryNode));
     if (!node) { printf("  [!] Memory error.\n"); return; }
@@ -175,6 +178,7 @@ void listPrint() {
     }
     printf("\n  Total served: %d\n", history.count);
 }
+
 void listFree() {
     HistoryNode *cur = history.head;
     while (cur) {
@@ -185,6 +189,7 @@ void listFree() {
     history.head  = NULL;
     history.count = 0;
 }
+
 void stackPush(Patient p) {
     if (undoStk.top >= STACK_SIZE - 1) {
         for (int i = 0; i < STACK_SIZE - 1; i++)
@@ -194,6 +199,7 @@ void stackPush(Patient p) {
         undoStk.data[++undoStk.top] = p;
     }
 }
+
 int stackPop(Patient *out) {
     if (undoStk.top < 0) return 0;
     *out = undoStk.data[undoStk.top--];
@@ -209,6 +215,7 @@ BSTNode *bstNewNode(Patient p) {
     n->left = n->right = NULL;
     return n;
 }
+
 BSTNode *bstInsert(BSTNode *root, Patient p) {
     if (!root) return bstNewNode(p);
     if (p.id < root->patient.id)
@@ -219,6 +226,7 @@ BSTNode *bstInsert(BSTNode *root, Patient p) {
         root->patient = p;
     return root;
 }
+
 BSTNode *bstSearch(BSTNode *root, int id) {
     if (!root || root->patient.id == id) return root;
     if (id < root->patient.id) return bstSearch(root->left,  id);
@@ -270,11 +278,11 @@ void bstFree(BSTNode *root) {
 
 int comparePatients(Patient *a, Patient *b, int mode) {
     switch (mode) {
-        case SORT_SEVERITY: return a->severity   - b->severity;
-        case SORT_WAIT:     return b->waitMinutes - a->waitMinutes; // descending
+        case SORT_SEVERITY: return a->severity        - b->severity;
+        case SORT_WAIT:     return b->waitMinutes     - a->waitMinutes;
         case SORT_APPT:     return a->appointmentTime - b->appointmentTime;
         case SORT_NAME:     return strcmp(a->ownerName, b->ownerName);
-        default:            return a->priorityScore - b->priorityScore;
+        default:            return a->priorityScore   - b->priorityScore;
     }
 }
 
@@ -289,7 +297,7 @@ void bubbleSort(Patient *arr, int n, int mode) {
                 swapped = 1;
             }
         }
-        if (!swapped) break; 
+        if (!swapped) break;
     }
 }
 
@@ -316,7 +324,7 @@ void displayQueue(int sortMode) {
     }
     Patient copy[MAX_PATIENTS];
     memcpy(copy, heap.data, heap.size * sizeof(Patient));
-    bubbleSort(copy, heap.size, sortMode); // Algorithm: Bubble Sort
+    bubbleSort(copy, heap.size, sortMode);
     const char *sortLabel[] = {
         "Priority Score","Severity","Wait Time","Appointment Time","Owner Name"
     };
@@ -358,8 +366,16 @@ int getAppointmentTime() {
 
 void printHeader() {
     printf("\n");
-    printDivider('=', 54);
-    printf("   VETCARE CLINIC — APPOINTMENT MANAGEMENT SYSTEM\n");
+    printf("  ================================================================\n");
+    printf("   /\\_/\\       ____                              __\n");
+    printf("  ( o.o )     / __ \\____  ____ _     ____  ___  / /_\n");
+    printf("   > ^ <     / / / / __ \\/ __ `/    / __ \\/ _ \\/ __/\n");
+    printf("  /|   |\\   / /_/ / /_/ / /_/ /    / /_/ /  __/ /_\n");
+    printf(" (_|   |_)  \\____/\\____/\\__, /     / .___/\\___/\\__/\n");
+    printf("                        /____/     /_/\n");
+    printf("  ----------------------------------------------------------------\n");
+    printf("         VETERINARY CLINIC -- Appointment Management System\n");
+    printf("                 Keeping Your Pets Happy & Healthy\n");
     printDivider('=', 54);
 }
 
@@ -398,26 +414,18 @@ void addPatient() {
     printf("  Owner Name : ");
     fgets(p.ownerName, NAME_LEN, stdin);
     p.ownerName[strcspn(p.ownerName, "\n")] = '\0';
-    if (strlen(p.ownerName) == 0) {
-        strncpy(p.ownerName, "Unknown", NAME_LEN);
-    }
+    if (strlen(p.ownerName) == 0) strncpy(p.ownerName, "Unknown", NAME_LEN);
+
     printf("  Pet Name   : ");
     fgets(p.petName, NAME_LEN, stdin);
     p.petName[strcspn(p.petName, "\n")] = '\0';
-    if (strlen(p.petName) == 0) {
-        strncpy(p.petName, "Unknown", NAME_LEN);
-    }
+    if (strlen(p.petName) == 0) strncpy(p.petName, "Unknown", NAME_LEN);
+
     printf("  Pet Type (e.g. Dog, Cat, Parrot, Snake): ");
     fgets(p.petType, NAME_LEN, stdin);
     p.petType[strcspn(p.petType, "\n")] = '\0';
-    if (strlen(p.petType) == 0) {
-        strncpy(p.petType, "Unknown", NAME_LEN);
-    }
-    printf("  Is exotic pet? (1=Yes, 0=No): ");
-    while (scanf("%d", &p.isExotic) != 1 || (p.isExotic != 0 && p.isExotic != 1)) {
-        printf("  Enter 0 or 1: ");
-        clearInput();
-    }
+    if (strlen(p.petType) == 0) strncpy(p.petType, "Unknown", NAME_LEN);
+
     clearInput();
     p.severity        = getSeverity();
     p.appointmentTime = getAppointmentTime();
@@ -427,7 +435,9 @@ void addPatient() {
         clearInput();
     }
     clearInput();
-    p.priorityScore = computePriority(p.severity, p.isExotic, p.waitMinutes, p.appointmentTime);
+
+    /* FIX 3: Corrected call — no isExotic argument */
+    p.priorityScore = computePriority(p.severity, p.waitMinutes, p.appointmentTime);
     heapEnqueue(p);
     stackPush(p);
     bstRoot = bstInsert(bstRoot, p);
@@ -435,6 +445,7 @@ void addPatient() {
     printf("      Priority Score: %d | Severity: %s\n",
            p.priorityScore, severityLabel(p.severity));
 }
+
 void serveNext() {
     if (heap.size == 0) {
         printf("\n  [!] No patients in queue.\n");
@@ -448,9 +459,8 @@ void serveNext() {
     printDivider('*', 50);
     printf("  Patient ID    : %d\n",   served.id);
     printf("  Owner         : %s\n",   served.ownerName);
-    printf("  Pet           : %s (%s%s)\n",
-           served.petName, served.petType,
-           served.isExotic ? ", Exotic" : "");
+    /* FIX 4: Removed broken ternary/exotic reference */
+    printf("  Pet           : %s (%s)\n", served.petName, served.petType);
     printf("  Severity      : %s\n",   severityLabel(served.severity));
     printf("  Appt Time     : %04d\n", served.appointmentTime);
     printf("  Wait Time     : %d min\n", served.waitMinutes);
@@ -515,6 +525,7 @@ void searchPatient() {
         printf("  Invalid choice.\n");
     }
 }
+
 void viewBSTRecords() {
     printf("\n--- All Patient Records (BST In-Order by ID) ---\n");
     if (!bstRoot) {
