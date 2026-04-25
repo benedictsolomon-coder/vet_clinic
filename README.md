@@ -2,66 +2,68 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
-
+#include <time.h>  
+ 
 #define MAX_PATIENTS  100
 #define NAME_LEN      50
-#define STACK_SIZE    100
-
+#define STACK_SIZE    100  
+ 
 #define SEV_CRITICAL  1
 #define SEV_URGENT    2
 #define SEV_MODERATE  3
 #define SEV_ROUTINE   4
-
+ 
 #define SORT_PRIORITY  0
 #define SORT_SEVERITY  1
 #define SORT_WAIT      2
 #define SORT_APPT      3
 #define SORT_NAME      4
-
+ 
 typedef struct {
-    int  id;
-    char ownerName[NAME_LEN];
-    char petName[NAME_LEN];
-    char petType[NAME_LEN];
-    int  severity;
-    int  appointmentTime;
-    int  waitMinutes;
-    int  priorityScore;
+    int    id;
+    char   ownerName[NAME_LEN];
+    char   petName[NAME_LEN];
+    char   petType[NAME_LEN];
+    int    severity;
+    int    appointmentTime;
+    int    waitMinutes;       
+    time_t enrolledAt;        
+    int    priorityScore;
 } Patient;
-
+ 
 typedef struct {
     Patient data[MAX_PATIENTS];
     int     size;
 } MinHeap;
-
+ 
 typedef struct HistoryNode {
     Patient             patient;
     struct HistoryNode *next;
 } HistoryNode;
-
+ 
 typedef struct {
     HistoryNode *head;
     int          count;
 } LinkedList;
-
+ 
 typedef struct {
     Patient data[STACK_SIZE];
     int     top;
 } Stack;
-
+ 
 typedef struct BSTNode {
     Patient         patient;
     struct BSTNode *left;
     struct BSTNode *right;
 } BSTNode;
-
+ 
 MinHeap    heap    = { .size = 0 };
 LinkedList history = { .head = NULL, .count = 0 };
 Stack      undoStk = { .top = -1 };
 BSTNode   *bstRoot = NULL;
 int        nextId  = 1;
+ 
 
-/* FIX 1: Removed isExotic parameter entirely */
 int computePriority(int severity, int waitMinutes, int appointmentTime) {
     int sevScore;
     switch (severity) {
@@ -70,15 +72,24 @@ int computePriority(int severity, int waitMinutes, int appointmentTime) {
         case SEV_MODERATE: sevScore = 20; break;
         default:           sevScore = 30; break;
     }
-    int waitScore = 20 - (waitMinutes / 3);
-    if (waitScore < 0)  waitScore = 0;
+    
+    int waitScore = waitMinutes / 3;
     if (waitScore > 20) waitScore = 20;
+ 
     int apptMins  = (appointmentTime / 100) * 60 + (appointmentTime % 100);
     int apptScore = apptMins / 64;
     if (apptScore > 15) apptScore = 15;
-    return sevScore + waitScore + apptScore;
+ 
+    return sevScore - waitScore + apptScore;
 }
+ 
 
+int getElapsedMinutes(time_t enrolledAt) {
+    double diff = difftime(time(NULL), enrolledAt);
+    int mins = (int)(diff / 60);
+    return mins < 0 ? 0 : mins;
+}
+ 
 const char *severityLabel(int s) {
     switch (s) {
         case SEV_CRITICAL: return "CRITICAL";
@@ -87,27 +98,34 @@ const char *severityLabel(int s) {
         default:           return "ROUTINE";
     }
 }
-
+ 
 void clearInput() {
     int c;
     while ((c = getchar()) != '\n' && c != EOF);
 }
-
+ 
 void printDivider(char c, int n) {
     for (int i = 0; i < n; i++) putchar(c);
     putchar('\n');
 }
-
+ 
 void strToLower(char *dest, const char *src) {
     int i = 0;
     while (src[i]) { dest[i] = tolower((unsigned char)src[i]); i++; }
     dest[i] = '\0';
 }
+ 
 
+void readString(char *buf, int len, const char *prompt) {
+    printf("%s", prompt);
+    fgets(buf, len, stdin);
+    buf[strcspn(buf, "\r\n")] = '\0';
+}
+ 
 void heapSwap(Patient *a, Patient *b) {
     Patient tmp = *a; *a = *b; *b = tmp;
 }
-
+ 
 void heapifyUp(int idx) {
     while (idx > 0) {
         int parent = (idx - 1) / 2;
@@ -117,7 +135,7 @@ void heapifyUp(int idx) {
         } else break;
     }
 }
-
+ 
 void heapifyDown(int idx) {
     while (1) {
         int left     = 2 * idx + 1;
@@ -131,25 +149,23 @@ void heapifyDown(int idx) {
         } else break;
     }
 }
-
+ 
 void heapEnqueue(Patient p) {
     if (heap.size >= MAX_PATIENTS) {
         printf("  [!] Queue is full.\n");
         return;
     }
-    /* FIX 2: Corrected call — no isExotic argument */
-    p.priorityScore = computePriority(p.severity, p.waitMinutes, p.appointmentTime);
     heap.data[heap.size++] = p;
     heapifyUp(heap.size - 1);
 }
-
+ 
 Patient heapDequeue() {
     Patient top   = heap.data[0];
     heap.data[0]  = heap.data[--heap.size];
     heapifyDown(0);
     return top;
 }
-
+ 
 void listPrepend(Patient p) {
     HistoryNode *node = (HistoryNode *)malloc(sizeof(HistoryNode));
     if (!node) { printf("  [!] Memory error.\n"); return; }
@@ -158,7 +174,7 @@ void listPrepend(Patient p) {
     history.head  = node;
     history.count++;
 }
-
+ 
 void listPrint() {
     if (!history.head) {
         printf("\n  [No patients served yet]\n");
@@ -178,7 +194,7 @@ void listPrint() {
     }
     printf("\n  Total served: %d\n", history.count);
 }
-
+ 
 void listFree() {
     HistoryNode *cur = history.head;
     while (cur) {
@@ -189,9 +205,11 @@ void listFree() {
     history.head  = NULL;
     history.count = 0;
 }
-
+ 
 void stackPush(Patient p) {
     if (undoStk.top >= STACK_SIZE - 1) {
+        /* FIX 8: Warn the user when the oldest undo entry is dropped */
+        printf("  [!] Undo history full — oldest entry discarded.\n");
         for (int i = 0; i < STACK_SIZE - 1; i++)
             undoStk.data[i] = undoStk.data[i + 1];
         undoStk.data[undoStk.top] = p;
@@ -199,15 +217,15 @@ void stackPush(Patient p) {
         undoStk.data[++undoStk.top] = p;
     }
 }
-
+ 
 int stackPop(Patient *out) {
     if (undoStk.top < 0) return 0;
     *out = undoStk.data[undoStk.top--];
     return 1;
 }
-
+ 
 int stackIsEmpty() { return undoStk.top < 0; }
-
+ 
 BSTNode *bstNewNode(Patient p) {
     BSTNode *n = (BSTNode *)malloc(sizeof(BSTNode));
     if (!n) { printf("  [!] Memory error.\n"); return NULL; }
@@ -215,7 +233,7 @@ BSTNode *bstNewNode(Patient p) {
     n->left = n->right = NULL;
     return n;
 }
-
+ 
 BSTNode *bstInsert(BSTNode *root, Patient p) {
     if (!root) return bstNewNode(p);
     if (p.id < root->patient.id)
@@ -226,30 +244,32 @@ BSTNode *bstInsert(BSTNode *root, Patient p) {
         root->patient = p;
     return root;
 }
-
+ 
 BSTNode *bstSearch(BSTNode *root, int id) {
     if (!root || root->patient.id == id) return root;
     if (id < root->patient.id) return bstSearch(root->left,  id);
     else                       return bstSearch(root->right, id);
 }
-
+ 
 void bstInOrder(BSTNode *root, int *count) {
     if (!root) return;
     bstInOrder(root->left, count);
     Patient *p = &root->patient;
+    /* FIX 9: Show live elapsed wait time instead of the stale stored waitMinutes */
+    int liveWait = getElapsedMinutes(p->enrolledAt);
     (*count)++;
     printf("  %-5d %-20s %-15s %-10s %-10s %04d      %-6d %-5d\n",
            p->id, p->ownerName, p->petName, p->petType,
            severityLabel(p->severity), p->appointmentTime,
-           p->waitMinutes, p->priorityScore);
+           liveWait, p->priorityScore);
     bstInOrder(root->right, count);
 }
-
+ 
 BSTNode *bstFindMin(BSTNode *root) {
     while (root->left) root = root->left;
     return root;
 }
-
+ 
 BSTNode *bstDelete(BSTNode *root, int id) {
     if (!root) return NULL;
     if (id < root->patient.id)
@@ -268,14 +288,14 @@ BSTNode *bstDelete(BSTNode *root, int id) {
     }
     return root;
 }
-
+ 
 void bstFree(BSTNode *root) {
     if (!root) return;
     bstFree(root->left);
     bstFree(root->right);
     free(root);
 }
-
+ 
 int comparePatients(Patient *a, Patient *b, int mode) {
     switch (mode) {
         case SORT_SEVERITY: return a->severity        - b->severity;
@@ -285,7 +305,7 @@ int comparePatients(Patient *a, Patient *b, int mode) {
         default:            return a->priorityScore   - b->priorityScore;
     }
 }
-
+ 
 void bubbleSort(Patient *arr, int n, int mode) {
     for (int i = 0; i < n - 1; i++) {
         int swapped = 0;
@@ -300,13 +320,13 @@ void bubbleSort(Patient *arr, int n, int mode) {
         if (!swapped) break;
     }
 }
-
+ 
 int linearSearchById(int id) {
     for (int i = 0; i < heap.size; i++)
         if (heap.data[i].id == id) return i;
     return -1;
 }
-
+ 
 int linearSearchByName(const char *name) {
     char lname[NAME_LEN], lpname[NAME_LEN];
     strToLower(lname, name);
@@ -316,6 +336,7 @@ int linearSearchByName(const char *name) {
     }
     return -1;
 }
+ 
 
 void displayQueue(int sortMode) {
     if (heap.size == 0) {
@@ -324,6 +345,11 @@ void displayQueue(int sortMode) {
     }
     Patient copy[MAX_PATIENTS];
     memcpy(copy, heap.data, heap.size * sizeof(Patient));
+ 
+    
+    for (int i = 0; i < heap.size; i++)
+        copy[i].waitMinutes = getElapsedMinutes(copy[i].enrolledAt);
+ 
     bubbleSort(copy, heap.size, sortMode);
     const char *sortLabel[] = {
         "Priority Score","Severity","Wait Time","Appointment Time","Owner Name"
@@ -341,7 +367,7 @@ void displayQueue(int sortMode) {
     }
     printf("\n  Patients in queue: %d\n", heap.size);
 }
-
+ 
 int getSeverity() {
     int s;
     printf("  Severity (1=Critical, 2=Urgent, 3=Moderate, 4=Routine): ");
@@ -352,7 +378,7 @@ int getSeverity() {
     clearInput();
     return s;
 }
-
+ 
 int getAppointmentTime() {
     int t;
     printf("  Appointment Time (HHMM, e.g. 0900): ");
@@ -363,22 +389,22 @@ int getAppointmentTime() {
     clearInput();
     return t;
 }
-
+ 
 void printHeader() {
     printf("\n");
     printf("  ================================================================\n");
-    printf("   /\\_/\\       ____                              __\n");
-    printf("  ( o.o )     / __ \\____  ____ _     ____  ___  / /_\n");
-    printf("   > ^ <     / / / / __ \\/ __ `/    / __ \\/ _ \\/ __/\n");
+    printf("   /\\_/\\       __                              __\n");
+    printf("  ( o.o )     / _ \\___  _ _     _  _  / /_\n");
+    printf("   > ^ <     / / / / _ \\/ _ `/    / __ \\/ _ \\/ __/\n");
     printf("  /|   |\\   / /_/ / /_/ / /_/ /    / /_/ /  __/ /_\n");
-    printf(" (_|   |_)  \\____/\\____/\\__, /     / .___/\\___/\\__/\n");
+    printf(" (|   |)  \\____/\\____/\\__, /     / .___/\\___/\\__/\n");
     printf("                        /____/     /_/\n");
     printf("  ----------------------------------------------------------------\n");
     printf("         VETERINARY CLINIC -- Appointment Management System\n");
     printf("                 Keeping Your Pets Happy & Healthy\n");
     printDivider('=', 54);
 }
-
+ 
 void printMainMenu() {
     printf("\n  +--------------------------------------+\n");
     printf("  |  1. Add Patient to Queue             |\n");
@@ -392,7 +418,7 @@ void printMainMenu() {
     printf("  +--------------------------------------+\n");
     printf("  Choice: ");
 }
-
+ 
 void printSortMenu() {
     printf("\n  Sort by:\n");
     printf("  0. Priority Score (default)\n");
@@ -402,7 +428,8 @@ void printSortMenu() {
     printf("  4. Owner Name (A-Z)\n");
     printf("  Choice [0-4]: ");
 }
-
+ 
+ 
 void addPatient() {
     if (heap.size >= MAX_PATIENTS) {
         printf("\n  [!] Queue is full!\n");
@@ -410,65 +437,70 @@ void addPatient() {
     }
     Patient p;
     p.id = nextId++;
+
     printf("\n--- Add New Patient (ID: %d) ---\n", p.id);
-    printf("  Owner Name : ");
-    fgets(p.ownerName, NAME_LEN, stdin);
-    p.ownerName[strcspn(p.ownerName, "\n")] = '\0';
-    if (strlen(p.ownerName) == 0) strncpy(p.ownerName, "Unknown", NAME_LEN);
 
-    printf("  Pet Name   : ");
-    fgets(p.petName, NAME_LEN, stdin);
-    p.petName[strcspn(p.petName, "\n")] = '\0';
-    if (strlen(p.petName) == 0) strncpy(p.petName, "Unknown", NAME_LEN);
+    do {
+        readString(p.ownerName, NAME_LEN, "  Owner Name : ");
+        if (strlen(p.ownerName) == 0)
+            printf("  Please enter your name.\n");
+    } while (strlen(p.ownerName) == 0);
 
-    printf("  Pet Type (e.g. Dog, Cat, Parrot, Snake): ");
-    fgets(p.petType, NAME_LEN, stdin);
-    p.petType[strcspn(p.petType, "\n")] = '\0';
-    if (strlen(p.petType) == 0) strncpy(p.petType, "Unknown", NAME_LEN);
+    if (linearSearchByName(p.ownerName) >= 0)
+        printf("  [!] Warning: A patient with a similar owner name is already in the queue.\n");
 
-    clearInput();
+    do {
+        readString(p.petName, NAME_LEN, "  Pet Name : ");
+        if (strlen(p.petName) == 0)
+            printf(" Please enter a pet name.\n");
+    } while (strlen(p.petName) == 0);
+
+    do {
+        readString(p.petType, NAME_LEN, "  Pet Type (e.g. Dog, Cat, Parrot, Snake): ");
+        if (strlen(p.petType) == 0)
+            printf("  Please enter a pet type.\n");
+    } while (strlen(p.petType) == 0);
+
     p.severity        = getSeverity();
     p.appointmentTime = getAppointmentTime();
-    printf("  Minutes already waited: ");
-    while (scanf("%d", &p.waitMinutes) != 1 || p.waitMinutes < 0) {
-        printf("  Enter a non-negative number: ");
-        clearInput();
-    }
-    clearInput();
+    p.enrolledAt      = time(NULL);
+    p.waitMinutes     = 0;
+    p.priorityScore   = computePriority(p.severity, p.waitMinutes, p.appointmentTime);
 
-    /* FIX 3: Corrected call — no isExotic argument */
-    p.priorityScore = computePriority(p.severity, p.waitMinutes, p.appointmentTime);
     heapEnqueue(p);
     stackPush(p);
     bstRoot = bstInsert(bstRoot, p);
+
     printf("\n  [+] Patient '%s' (Pet: %s) added.\n", p.ownerName, p.petName);
     printf("      Priority Score: %d | Severity: %s\n",
            p.priorityScore, severityLabel(p.severity));
 }
-
+ 
 void serveNext() {
     if (heap.size == 0) {
         printf("\n  [!] No patients in queue.\n");
         return;
     }
     Patient served = heapDequeue();
+   
+    served.waitMinutes = getElapsedMinutes(served.enrolledAt);
     listPrepend(served);
+ 
     printf("\n");
     printDivider('*', 50);
     printf("  NOW SERVING\n");
     printDivider('*', 50);
-    printf("  Patient ID    : %d\n",   served.id);
-    printf("  Owner         : %s\n",   served.ownerName);
-    /* FIX 4: Removed broken ternary/exotic reference */
+    printf("  Patient ID    : %d\n",     served.id);
+    printf("  Owner         : %s\n",     served.ownerName);
     printf("  Pet           : %s (%s)\n", served.petName, served.petType);
-    printf("  Severity      : %s\n",   severityLabel(served.severity));
-    printf("  Appt Time     : %04d\n", served.appointmentTime);
+    printf("  Severity      : %s\n",     severityLabel(served.severity));
+    printf("  Appt Time     : %04d\n",   served.appointmentTime);
     printf("  Wait Time     : %d min\n", served.waitMinutes);
-    printf("  Priority Score: %d\n",   served.priorityScore);
+    printf("  Priority Score: %d\n",     served.priorityScore);
     printDivider('*', 50);
     printf("  Remaining in queue: %d\n", heap.size);
 }
-
+ 
 void searchPatient() {
     printf("\n--- Search Patient ---\n");
     printf("  1. Search by ID\n");
@@ -507,9 +539,8 @@ void searchPatient() {
         }
     } else if (choice == 2) {
         char name[NAME_LEN];
-        printf("  Enter Owner Name (partial ok): ");
-        fgets(name, NAME_LEN, stdin);
-        name[strcspn(name, "\n")] = '\0';
+        /* FIX 7: Use readString() here too */
+        readString(name, NAME_LEN, "  Enter Owner Name (partial ok): ");
         int idx = linearSearchByName(name);
         if (idx >= 0) {
             Patient *p = &heap.data[idx];
@@ -525,21 +556,21 @@ void searchPatient() {
         printf("  Invalid choice.\n");
     }
 }
-
+ 
 void viewBSTRecords() {
     printf("\n--- All Patient Records (BST In-Order by ID) ---\n");
     if (!bstRoot) {
         printf("  [No records yet]\n");
         return;
     }
-    printf("  %-5s %-20s %-15s %-10s %-10s %-9s %-6s %-5s\n",
-           "ID","Owner","Pet","Type","Severity","ApptTime","Wait","Score");
+    printf(" %-5s %-15s %-10s %-10s %-10s %-9s %-6s %-5s\n",
+           "ID","Owner","Pet Name","Type","Severity","ApptTime","Wait","Score");
     printDivider('-', 85);
     int count = 0;
     bstInOrder(bstRoot, &count);
     printf("\n  Total records: %d\n", count);
 }
-
+ 
 void undoLastAdd() {
     Patient p;
     if (!stackPop(&p)) {
@@ -552,17 +583,24 @@ void undoLastAdd() {
     }
     if (found >= 0) {
         heap.data[found] = heap.data[--heap.size];
-        heapifyDown(found);
-        heapifyUp(found);
+ 
+        
+        if (found > 0 &&
+            heap.data[found].priorityScore < heap.data[(found - 1) / 2].priorityScore)
+            heapifyUp(found);
+        else
+            heapifyDown(found);
+ 
         bstRoot = bstDelete(bstRoot, p.id);
+ 
+        
         printf("\n  [Undo] Removed patient: %s (Pet: %s, ID: %d)\n",
                p.ownerName, p.petName, p.id);
-        nextId--;
     } else {
         printf("\n  [!] Patient already served — cannot undo.\n");
     }
 }
-
+ 
 int main() {
     printHeader();
     printf("   DSA Used: Min-Heap | Linked List | Stack | BST\n");
