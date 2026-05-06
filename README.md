@@ -394,11 +394,14 @@ void bubbleSort(Patient *arr, int n) {
 void printHeader() {
     printf("\n");
     printDivider('=', 56);
-    printf("   VETCARE CLINIC - APPOINTMENT MANAGEMENT SYSTEM\n");
+    printf("   /\\_/\\                     __                    __           \n");
+    printf("  ( o.o )         ___  ___  / /_   \\ \\  / /  ___  / /_         \n");
+    printf("   > ^ <        / __ \\/ _ \\/ __/    \\ \\/ / /  _ \\/  __/             \n");
+    printf("  /|   |\\      / /_/ /  __/ /_       \\  / /  __/  /_              \n");
+    printf(" (_|   |_)    / .___/\\___/\\__/        \\/  \\___/\\___/                    \n");
+    printf("             /_/                                                        \n");
     printDivider('=', 56);
-    printf("   DSA: Sorted Linked List | Array of Structs\n");
-    printf("        History List | Stack\n");
-    printf("   Algorithms: Bubble Sort | Linear Search | Insertion Sort\n");
+    printf("   VETCARE CLINIC - APPOINTMENT MANAGEMENT SYSTEM\n");
     printDivider('=', 56);
 }
 
