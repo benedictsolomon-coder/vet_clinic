@@ -34,6 +34,7 @@ This is how you compile and run it in terminal or your command prompt (CMD) for 
 
 "vet_clinic.exe" use this command to run the program in Windows.
 
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -553,14 +554,40 @@ int getAppointmentDate() {
 }
 
 int getAppointmentTime() {
-    int t;
-    printf("  Appointment Time (HHMM, e.g. 0900 in 24h): ");
-    while (scanf("%d", &t) != 1 || t < 0 || t > 2359 || (t % 100) >= 60) {
-        printf("  Invalid time. Try again: ");
+    int h, m;
+    char period[5];
+
+    while (1) {
+        printf("  Appointment Time (HH MM AM/PM, e.g. 09 30 AM): ");
+        if (scanf("%d %d %4s", &h, &m, period) != 3) {
+            printf("  Invalid. Try again.\n");
+            clearInput();
+            continue;
+        }
         clearInput();
+
+        // Validate
+        if (h < 1 || h > 12 || m < 0 || m > 59) {
+            printf("  Invalid time. Hour must be 1-12, minute 0-59.\n");
+            continue;
+        }
+
+        // Convert to uppercase for comparison
+        for (int i = 0; period[i]; i++)
+            period[i] = toupper((unsigned char)period[i]);
+
+        if (strcmp(period, "AM") != 0 && strcmp(period, "PM") != 0) {
+            printf("  Invalid period. Enter AM or PM.\n");
+            continue;
+        }
+
+        // Convert to 24-hour HHMM
+        int hour24 = h;
+        if (strcmp(period, "PM") == 0 && h == 12) hour24 = 0;   // 12 AM = midnight
+        if (strcmp(period, "AM") == 0 && h != 12) hour24 = h + 12; // PM shift
+
+        return hour24 * 100 + m;   // stored as 24h internally
     }
-    clearInput();
-    return t;
 }
 
 
