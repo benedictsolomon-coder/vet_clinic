@@ -6,7 +6,9 @@ The priority score is calculated using the formula priorityScore = severityScore
 
 **Data Structures and Algorithms**
 
-The system uses four core data structures together with bubble sort and linear search. The min-heap serves as the live patient queue, always keeping the most urgent patient at the top so the system can instantly find who to serve next, it also supports adding patients, serving them, cancelling appointments, and undoing additions. Two singly linked lists maintain the served patient history and the cancelled appointments section, where each new entry is simply attached to the front of the list so the most recent record always appears first. An array-based stack enables undo functionality by saving a copy of each patient as they are added, so if the last addition needs to be reversed, it can be removed quickly and cleanly. A binary search tree (BST) focused on patient ID keeps a permanent record of every registered patient, organized in a way that makes looking up, adding, and removing records fast without scanning the entire list. For display purposes, bubble sort is applied to a temporary copy of the queue, never the real one to offer five sort modes (priority, severity, wait time, appointment time, and name), while linear search handles name-based lookups, appointment slot conflict checks, and ID searches when a quick BST lookup is not enough.
+The system uses three core data structures together with bubble sort and circular linear search. A sorted linked list serves as the live patient queue, kept in ascending order by priority score at all times so the most urgent patient is always at the head — adding a patient inserts them into the correct sorted position automatically, serving simply removes the head with no searching required, and cancelling an appointment walks the list to remove a specific node by ID. An array of structs keeps a permanent record of every registered patient ever added, supporting addition, ID-based lookup, and removal by shifting remaining elements left when a record is cancelled or served. An array-based stack enables undo functionality by saving a copy of each patient as they are added, so if the last addition needs to be reversed it can be popped off and cleanly removed from both the queue and the records array.
+
+For display purposes, bubble sort is applied to a temporary copy of the queue — never the real one — so patients can be shown in sorted order by priority score without disturbing the actual linked list. Circular linear search handles name-based lookups by scanning the records array starting from any index and wrapping around to ensure all matches are found, even when duplicate names exist across the full record set.
 
 **Features**
 
@@ -31,8 +33,6 @@ This is how you compile and run it in terminal or your command prompt (CMD) for 
 "./vet_clinic" use this command to run the program in macOS, and Linux.
 
 "vet_clinic.exe" use this command to run the program in Windows.
-
-========== Source code ==========
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -64,6 +64,7 @@ typedef struct {
     char petName[NAME_LEN];
     char petType[NAME_LEN];
     int  severity;           // 1=Critical, 2=Urgent, 3=Moderate, 4=Routine
+    int  appointmentDate;    // stored as YYYYMMDD, e.g. 20260115 — Moderate/Routine only
     int  appointmentTime;    // stored as HHMM, e.g. 0930 (24h) — Moderate/Routine only
     int  waitMinutes;        // computed at serve time — how long they waited
     time_t timeAdded;        // timestamp when patient was added to queue
@@ -145,6 +146,40 @@ void strToLower(char *dest, const char *src) {
         i++;
     }
     dest[i] = '\0';
+}
+
+// Formats an appointmentDate (YYYYMMDD) into a readable string like "Jan 15, 2026"
+void formatDate(char *out, int date) {
+    if (date == 0) {
+        strcpy(out, "N/A");
+        return;
+    }
+    int year  = date / 10000;
+    int month = (date / 100) % 100;
+    int day   = date % 100;
+    const char *months[] = {
+        "Jan","Feb","Mar","Apr","May","Jun",
+        "Jul","Aug","Sep","Oct","Nov","Dec"
+    };
+    if (month < 1 || month > 12) {
+        sprintf(out, "%08d", date);
+        return;
+    }
+    sprintf(out, "%s %02d, %04d", months[month - 1], day, year);
+}
+
+// Formats an appointmentTime (HHMM) into "HH:MM" string
+void formatTime(char *out, int t) {
+    if (t == 0) {
+        strcpy(out, "N/A  ");
+        return;
+    }
+    int hour   = t / 100;
+    int minute = t % 100;
+    const char *period = (hour < 12) ? "PM" : "AM";
+    int hour12 = hour % 12;
+    if (hour12 == 0) hour12 = 12;   // midnight (0) and noon (12) → display as 12
+    sprintf(out, "%02d:%02d %s", hour12, minute, period);
 }
 
 
@@ -272,10 +307,15 @@ int found = 0;
         strToLower(lowner, records.data[i].ownerName);
         if (strstr(lowner, lname)) {
             Patient *p = &records.data[i];
+            char dateStr[20], timeStr[10];
+            formatDate(dateStr, p->appointmentDate);
+            formatTime(timeStr, p->appointmentTime);
             printf("  ID: %-4d | Owner: %-20s | Pet: %-15s (%s)\n",
                    p->id, p->ownerName, p->petName, p->petType);
             printf("         | Severity: %-10s | Score: %d\n",
                    severityLabel(p->severity), p->priorityScore);
+            if (p->severity == SEV_MODERATE || p->severity == SEV_ROUTINE)
+                printf("         | Appt: %s at %s\n", dateStr, timeStr);
             printDivider('-', 75);
             found++;
         }
@@ -301,14 +341,17 @@ void recordPrintAll() {
         printf("  [No records yet]\n");
         return;
     }
-    printf("  %-5s %-20s %-15s %-10s %-10s %-9s %-6s %-5s\n",
-           "ID", "Owner", "Pet", "Type", "Severity", "ApptTime", "Wait", "Score");
-    printDivider('-', 85);
+    printf("  %-5s %-20s %-15s %-10s %-10s %-13s %-6s %-6s %-5s\n",
+           "ID", "Owner", "Pet", "Type", "Severity", "Date", "Time", "Wait", "Score");
+    printDivider('-', 95);
     for (int i = 0; i < records.count; i++) {
         Patient *p = &records.data[i];
-        printf("  %-5d %-20s %-15s %-10s %-10s %04d      %-6d %-5d\n",
+        char dateStr[20], timeStr[10];
+        formatDate(dateStr, p->appointmentDate);
+        formatTime(timeStr, p->appointmentTime);
+        printf("  %-5d %-20s %-15s %-10s %-10s %-13s %-6s %-6d %-5d\n",
                p->id, p->ownerName, p->petName, p->petType,
-               severityLabel(p->severity), p->appointmentTime,
+               severityLabel(p->severity), dateStr, timeStr,
                p->waitMinutes, p->priorityScore);
     }
     printf("\n  Total records: %d\n", records.count);
@@ -361,9 +404,6 @@ void historyFree() {
     history.head  = NULL;
     history.count = 0;
 }
-
-
-
 
 
 /* ============================================================
@@ -438,18 +478,21 @@ void displayQueue() {
 // Bubble sort the copy by priority score
     bubbleSort(copy, n);
 
-printf("\n  Sorted by: Priority Score\n");
-    printf("  %-4s %-5s %-20s %-15s %-10s %-10s %-9s %-6s %-5s\n",
+    printf("\n  Sorted by: Priority Score\n");
+    printf("  %-4s %-5s %-20s %-15s %-10s %-10s %-13s %-6s %-6s %-5s\n",
            "Rank", "ID", "Owner", "Pet", "Type",
-           "Severity", "ApptTime", "Wait", "Priority");
-    printDivider('-', 100);
+           "Severity", "Date", "Time", "Wait", "Priority");
+    printDivider('-', 110);
 
 for (int i = 0; i < n; i++) {
         Patient *p = &copy[i];
+        char dateStr[20], timeStr[10];
+        formatDate(dateStr, p->appointmentDate);
+        formatTime(timeStr, p->appointmentTime);
         int wait = (int)(difftime(time(NULL), p->timeAdded) / 60);
-        printf("  %-4d %-5d %-20s %-15s %-10s %-10s %04d      %-6d %-5d\n",
+        printf("  %-4d %-5d %-20s %-15s %-10s %-10s %-13s %-6s %-6d %-5d\n",
                i + 1, p->id, p->ownerName, p->petName, p->petType,
-               severityLabel(p->severity), p->appointmentTime,
+               severityLabel(p->severity), dateStr, timeStr,
                wait, p->priorityScore);
     }
     printf("\n  Patients in queue: %d\n", queue.size);
@@ -469,6 +512,44 @@ int getSeverity() {
     }
     clearInput();
     return s;
+}
+
+// Returns a validated date as an integer YYYYMMDD
+int getAppointmentDate() {
+    int year, month, day;
+    int daysInMonth[] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+
+    while (1) {
+        printf("  Appointment Date (YYYY MM DD): ");
+        if (scanf("%d %d %d", &year, &month, &day) != 3) {
+            printf("  Invalid. Enter year, month, and day separated by spaces.\n");
+            clearInput();
+            continue;
+        }
+        clearInput();
+
+        // Basic range checks
+        if (year < 1900 || year > 9999) {
+            printf("  Invalid year. Try again.\n");
+            continue;
+        }
+        if (month < 1 || month > 12) {
+            printf("  Invalid month (1-12). Try again.\n");
+            continue;
+        }
+
+        // Leap year adjustment for February
+        int maxDay = daysInMonth[month];
+        if (month == 2 && ((year % 4 == 0 && year % 100 != 0) || year % 400 == 0))
+            maxDay = 29;
+
+        if (day < 1 || day > maxDay) {
+            printf("  Invalid day for the given month. Try again.\n");
+            continue;
+        }
+
+        return year * 10000 + month * 100 + day;   // e.g. 20260115
+    }
 }
 
 int getAppointmentTime() {
@@ -516,11 +597,13 @@ printf("  Pet Name   : ");
 
 p.severity = getSeverity();
 
-// Appointment time only for Moderate and Routine
+// Appointment date and time only for Moderate and Routine
     if (p.severity == SEV_MODERATE || p.severity == SEV_ROUTINE) {
+        p.appointmentDate = getAppointmentDate();
         p.appointmentTime = getAppointmentTime();
     } else {
-        p.appointmentTime = 0;   // not applicable for Critical / Urgent
+        p.appointmentDate = 0;   // not applicable for Critical / Urgent
+        p.appointmentTime = 0;
     }
 
 p.waitMinutes = 0;          // will be computed when served
@@ -531,8 +614,14 @@ p.priorityScore = computePriority(p.severity);
 listEnqueue(p);   // insert into sorted linked list in correct position
     recordAdd(p);     // store in records array
 
-printf("\n  [+] %s's pet %s added to queue.\n", p.ownerName, p.petName);
+    char dateStr[20], timeStr[10];
+    formatDate(dateStr, p.appointmentDate);
+    formatTime(timeStr, p.appointmentTime);
+
+    printf("\n  [+] %s's pet %s added to queue.\n", p.ownerName, p.petName);
     printf("      Score: %d | Severity: %s\n", p.priorityScore, severityLabel(p.severity));
+    if (p.severity == SEV_MODERATE || p.severity == SEV_ROUTINE)
+        printf("      Appointment: %s at %s\n", dateStr, timeStr);
 }
 
 // Removes the head of the sorted list (most urgent) and adds to history
@@ -546,6 +635,10 @@ Patient served = listDequeue();
     served.waitMinutes = (int)(difftime(time(NULL), served.timeAdded) / 60);
     historyPrepend(served);
 
+    char dateStr[20], timeStr[10];
+    formatDate(dateStr, served.appointmentDate);
+    formatTime(timeStr, served.appointmentTime);
+
 printf("\n");
     printDivider('*', 50);
     printf("  NOW SERVING\n");
@@ -555,7 +648,7 @@ printf("\n");
     printf("  Pet           : %s (%s)\n", served.petName, served.petType);
     printf("  Severity      : %s\n",      severityLabel(served.severity));
     if (served.severity == SEV_MODERATE || served.severity == SEV_ROUTINE)
-        printf("  Appt Time     : %04d\n", served.appointmentTime);
+        printf("  Appointment   : %s at %s\n", dateStr, timeStr);
     printf("  Wait Time     : %d min\n",  served.waitMinutes);
     printf("  Priority Score: %d\n",      served.priorityScore);
     printDivider('*', 50);
@@ -582,11 +675,16 @@ if (choice == 1) {
 int idx = recordSearchById(id);
         if (idx >= 0) {
             Patient *p = &records.data[idx];
+            char dateStr[20], timeStr[10];
+            formatDate(dateStr, p->appointmentDate);
+            formatTime(timeStr, p->appointmentTime);
             printf("\n  [Record Search] Found:\n");
             printf("  ID: %d | Owner: %s | Pet: %s (%s)\n",
                    p->id, p->ownerName, p->petName, p->petType);
             printf("  Severity: %s | Score: %d\n",
                    severityLabel(p->severity), p->priorityScore);
+            if (p->severity == SEV_MODERATE || p->severity == SEV_ROUTINE)
+                printf("  Appointment: %s at %s\n", dateStr, timeStr);
 
 // Check if still in queue by walking the list
             int inQueue = 0;
@@ -614,8 +712,6 @@ printf("\n  [Name Search] Results for '%s':\n", name);
         printf("  Invalid choice.\n");
     }
 }
-
-
 
 
 // Cancels a patient's appointment by ID — removes from queue and records
@@ -649,12 +745,16 @@ if (!inQueue) {
         return;
     }
 
+    char dateStr[20], timeStr[10];
+    formatDate(dateStr, p.appointmentDate);
+    formatTime(timeStr, p.appointmentTime);
+
 // Show info and confirm
     printf("\n  Patient found:\n");
     printf("  ID: %d | Owner: %s | Pet: %s (%s) | Severity: %s\n",
            p.id, p.ownerName, p.petName, p.petType, severityLabel(p.severity));
     if (p.severity == SEV_MODERATE || p.severity == SEV_ROUTINE)
-        printf("  Appointment Time: %04d\n", p.appointmentTime);
+        printf("  Appointment: %s at %s\n", dateStr, timeStr);
     printf("\n  Confirm cancellation? (1 = Yes, 0 = No): ");
 
 int confirm;
