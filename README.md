@@ -408,6 +408,29 @@ void historyFree() {
 
 
 /* ============================================================
+   SECTION 6: TIME SLOT CONFLICT CHECKER
+   Checks the QUEUE only — once a patient is served or cancelled,
+   their slot becomes available again for new appointments.
+   ============================================================ */
+// Returns 1 if the date+time slot is already taken, 0 if free
+int isTimeSlotTaken(int date, int time) {
+    QueueNode *cur = queue.head;
+    while (cur) {
+        if (cur->patient.appointmentDate == date &&
+            cur->patient.appointmentTime == time) {
+            printf("\n  [!] This time slot is already booked by:\n");
+            printf("      Owner : %s\n", cur->patient.ownerName);
+            printf("      Pet   : %s (ID: %d)\n", cur->patient.petName, cur->patient.id);
+            printf("      Slot will be free once that patient is served or cancelled.\n");
+            return 1;   // slot is taken
+        }
+        cur = cur->next;
+    }
+    return 0;   // slot is free
+}
+
+
+/* ============================================================
    SECTION 7: BUBBLE SORT
    Sorts a temporary array copy of the queue by priority score.
    The actual sorted linked list order is NOT changed.
@@ -626,8 +649,18 @@ p.severity = getSeverity();
 
 // Appointment date and time only for Moderate and Routine
     if (p.severity == SEV_MODERATE || p.severity == SEV_ROUTINE) {
-        p.appointmentDate = getAppointmentDate();
-        p.appointmentTime = getAppointmentTime();
+        int chosenDate, chosenTime;
+        while (1) {
+            chosenDate = getAppointmentDate();
+            chosenTime = getAppointmentTime();
+            if (isTimeSlotTaken(chosenDate, chosenTime)) {
+                printf("      Please choose a different date or time.\n\n");
+            } else {
+                break;   // slot is free, proceed
+            }
+        }
+        p.appointmentDate = chosenDate;
+        p.appointmentTime = chosenTime;
     } else {
         p.appointmentDate = 0;   // not applicable for Critical / Urgent
         p.appointmentTime = 0;
